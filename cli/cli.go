@@ -3,7 +3,10 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"github.com/newbiet21379/blockchain/blockchain"
+	"github.com/newbiet21379/blockgo/blockchain"
+	"github.com/newbiet21379/blockgo/utils"
+	"github.com/newbiet21379/blockgo/wallet"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -14,10 +17,12 @@ type CommandLine struct {
 
 func (cli *CommandLine) printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println(" get balance -address ADDRESS - get the balances for that address")
+	fmt.Println(" getbalance -address ADDRESS - get the balances for that address")
 	fmt.Println(" createblockchain -address ADDRESS creates a blockchain and that address mine the Genesis block")
 	fmt.Println("printchain - Prints the blocks in the chain")
+	fmt.Println("createwallet - Create a new wallet")
 	fmt.Println("send -from FROM -to TO -amount AMOUNT - Send amount ")
+	fmt.Println("listaddresses - List of addresses in our wallet file")
 }
 
 func (cli *CommandLine) validateArgs() {
@@ -25,6 +30,23 @@ func (cli *CommandLine) validateArgs() {
 		cli.printUsage()
 		runtime.Goexit()
 	}
+}
+
+func (cli *CommandLine) listAddresses() {
+	wallets, _ := wallet.CreateWallets()
+	addresses := wallets.GetAllAddresses()
+
+	for _, address := range addresses {
+		fmt.Println(address)
+	}
+}
+
+func (cli *CommandLine) createWallet() {
+	wallets, _ := wallet.CreateWallets()
+	address := wallets.AddWallet()
+	wallets.SaveFile()
+
+	fmt.Printf("New address is : %s\n", address)
 }
 
 func (cli *CommandLine) printChain() {
@@ -38,6 +60,10 @@ func (cli *CommandLine) printChain() {
 
 		pow := blockchain.NewProof(block)
 		fmt.Printf("Pow: %s\n", strconv.FormatBool(pow.Validate()))
+
+		for _, tx := range block.Transactions {
+			fmt.Println(tx)
+		}
 		fmt.Println()
 
 		if len(block.PrevHash) == 0 {
@@ -47,17 +73,25 @@ func (cli *CommandLine) printChain() {
 }
 
 func (cli *CommandLine) createBlockChain(address string) {
+	if !wallet.ValidateAddress(address) {
+		log.Panic("address is not Valid")
+	}
 	chain := blockchain.InitBlockChain(address)
 	chain.Database.Close()
 	fmt.Println("Finished")
 }
 
 func (cli *CommandLine) getBalance(address string) {
+	if !wallet.ValidateAddress(address) {
+		log.Panic("Address is not Valid")
+	}
 	chain := blockchain.ContinueBlockChain(address)
 	defer chain.Database.Close()
 
 	balance := 0
-	UTXOs := chain.FindUTXO(address)
+	pubKeyHash := utils.Base58Decode([]byte(address)) // Decode the address
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
+	UTXOs := chain.FindUTXO(pubKeyHash)
 
 	for _, out := range UTXOs {
 		balance += out.Value
@@ -80,6 +114,8 @@ func (cli *CommandLine) Run() {
 	createBlockChainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
+	createWalletCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
+	listAddressesCmd := flag.NewFlagSet("listaddresses", flag.ExitOnError)
 
 	getBalanceAddress := getBalanceCmd.String("address", "", "The address of needed to check balance")
 	createBlockChainAddress := createBlockChainCmd.String("address", "", "blockchain address")
@@ -100,6 +136,12 @@ func (cli *CommandLine) Run() {
 	case "printchain":
 		err := printChainCmd.Parse(os.Args[2:])
 		blockchain.Handle(err)
+	case "createwallet":
+		err := createWalletCmd.Parse(os.Args[2:])
+		blockchain.Handle(err)
+	case "listaddresses":
+		err := listAddressesCmd.Parse(os.Args[2:])
+		blockchain.Handle(err)
 	default:
 		cli.printUsage()
 		runtime.Goexit()
@@ -107,6 +149,14 @@ func (cli *CommandLine) Run() {
 
 	if printChainCmd.Parsed() {
 		cli.printChain()
+	}
+
+	if listAddressesCmd.Parsed() {
+		cli.listAddresses()
+	}
+
+	if createWalletCmd.Parsed() {
+		cli.createWallet()
 	}
 
 	if getBalanceCmd.Parsed() {
