@@ -2,3 +2,4 @@
 *.sst
 MANIFEST
 .idea
+tmp/*
