@@ -1,1 +1,4 @@
-temp/
+*.vlog
+*.sst
+MANIFEST
+.idea

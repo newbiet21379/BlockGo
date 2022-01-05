@@ -89,7 +89,7 @@ func ContinueBlockChain(address string) *BlockChain {
 	return &chain
 }
 
-func (chain *BlockChain) AddBlock(data string) {
+func (chain *BlockChain) AddBlock(transactions []*Transaction) {
 	var lastHash []byte
 
 	err := chain.Database.View(func(txn *badger.Txn) error {
@@ -98,8 +98,9 @@ func (chain *BlockChain) AddBlock(data string) {
 		lastHash, err = item.ValueCopy(nil)
 		return err
 	})
+
 	Handle(err)
-	newBlock := CreateBlock(data, lastHash)
+	newBlock := CreateBlock(transactions, lastHash)
 	err = chain.Database.Update(func(txn *badger.Txn) error {
 		err := txn.Set(newBlock.Hash, newBlock.Serialize())
 		Handle(err)
@@ -172,11 +173,11 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []Transaction {
 	return unspentTxs
 }
 
-func (chain *BlockChain) FindUTX(address string) []TxOutput {
+func (chain *BlockChain) FindUTXO(address string) []TxOutput {
 	var UTXOs []TxOutput
-	unspendTransactions := chain.FindUnspentTransactions(address)
+	unspentTransactions := chain.FindUnspentTransactions(address)
 
-	for _, tx := range unspendTransactions {
+	for _, tx := range unspentTransactions {
 		for _, out := range tx.Outputs {
 			if out.CanBeUnlocked(address) {
 				UTXOs = append(UTXOs, out)
@@ -186,6 +187,23 @@ func (chain *BlockChain) FindUTX(address string) []TxOutput {
 	return UTXOs
 }
 
-func (chain *BlockChain) FindSpendableOutputs(address string, amount int) {
+func (chain *BlockChain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+	unspentOuts := make(map[string][]int)                // Unspent outputs
+	unspentTxs := chain.FindUnspentTransactions(address) // Unspent transaction
+	accumulated := 0
+Work:
+	for _, tx := range unspentTxs {
+		txId := hex.EncodeToString(tx.ID)
+		for outIdx, out := range tx.Outputs {
+			if out.CanBeUnlocked(address) && accumulated < amount { // Can't make a transaction if not enough in the account
+				accumulated += out.Value
+				unspentOuts[txId] = append(unspentOuts[txId], outIdx)
 
+				if accumulated >= amount {
+					break Work
+				}
+			}
+		}
+	}
+	return accumulated, unspentOuts
 }
